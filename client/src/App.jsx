@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import './App.css'
 
-const API = 'http://localhost:5000/api'
+const API = `${import.meta.env.VITE_API_URL || 'https://server-eosin-one-26.vercel.app'}/api`
 const LS = { items: 'jacquard.items.v2', bills: 'jacquard.bills.v2' }
 
 const seedItems = [
