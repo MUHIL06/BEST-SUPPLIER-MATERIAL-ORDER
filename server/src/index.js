@@ -20,7 +20,7 @@ app.use(express.json({ limit: '2mb' }))
 app.get('/api/health', (_, res) => res.json({ ok: true, mongoReady: mongoose.connection.readyState === 1 }))
 app.use('/api', api)
 
-const mongoUri = process.env.MONGODB_URI=mongodb+srv://srmuhil06:06dec2004@cluster0.xoeyq.mongodb.net/jacquard_supply?retryWrites=true&w=majority&appName=Cluster0
+const mongoUri = process.env.MONGODB_URI || 'mongodb+srv://srmuhil06:06dec2004@cluster0.xoeyq.mongodb.net/jacquard_supply?retryWrites=true&w=majority&appName=Cluster0'
 
 let connectionPromise = null
 export async function connectDatabase() {
@@ -35,6 +35,6 @@ export { app }
 if (process.env.VERCEL !== '1') {
     const port = process.env.PORT || 5000
     connectDatabase()
-        .then(() => app.listen(port, () => console.log(`API running at https://server-eosin-one-26.vercel.app (local port ${port})`)))
+        .then(() => app.listen(port, () => console.log(`API running on port ${port}`)))
         .catch(error => { console.error('MongoDB connection failed:', error.message); process.exit(1) })
 }
