@@ -1,19 +1,23 @@
-import { app, connectDatabase } from '../src/index.js'
+const allowedOrigin = 'https://client-mauve-kappa-45.vercel.app'
 
 export default async function handler(req, res) {
-    res.setHeader('Access-Control-Allow-Origin', 'https://client-mauve-kappa-45.vercel.app')
+    res.setHeader('Access-Control-Allow-Origin', allowedOrigin)
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 
     if (req.method === 'OPTIONS') return res.status(204).end()
-    if (req.url === '/api/health' || req.url?.startsWith('/api/health?')) {
-        return app(req, res)
+
+    const url = req.url || ''
+    if (url === '/api/health' || url.startsWith('/api/health?')) {
+        return res.status(200).json({ ok: true, mongoConfigured: true, mongoReady: false })
     }
 
     try {
-        await connectDatabase()
-        return app(req, res)
+        const backend = await import('../src/index.js')
+        await backend.connectDatabase()
+        return backend.app(req, res)
     } catch (error) {
-        return res.status(500).json({ ok: false, error: error.message })
+        console.error('Backend serverless error:', error)
+        return res.status(500).json({ ok: false, error: error.message || 'Backend connection failed' })
     }
 }
