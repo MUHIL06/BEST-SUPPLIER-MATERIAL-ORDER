@@ -20,7 +20,7 @@ app.use(express.json({ limit: '2mb' }))
 app.get('/api/health', (_, res) => res.json({ ok: true, mongoReady: mongoose.connection.readyState === 1 }))
 app.use('/api', api)
 
-const mongoUri = process.env.MONGODB_URI
+const mongoUri = process.env.MONGODB_URI=mongodb+srv://srmuhil06:06dec2004@cluster0.xoeyq.mongodb.net/jacquard_supply?retryWrites=true&w=majority&appName=Cluster0
 
 let connectionPromise = null
 export async function connectDatabase() {
