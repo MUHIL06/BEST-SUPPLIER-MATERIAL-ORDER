@@ -14,10 +14,10 @@ const port = process.env.PORT || 5000
 const mongoUri = process.env.MONGODB_URI
 
 if (!mongoUri) {
-  console.error('MONGODB_URI is required')
-  process.exit(1)
+    console.error('MONGODB_URI is required')
+    process.exit(1)
 }
 
 mongoose.connect(mongoUri)
-  .then(() => app.listen(port, () => console.log(`API running at http://localhost:${port}`)))
-  .catch(error => { console.error('MongoDB connection failed:', error.message); process.exit(1) })
+    .then(() => app.listen(port, () => console.log(`API running at http://localhost:${port}`)))
+    .catch(error => { console.error('MongoDB connection failed:', error.message); process.exit(1) })
