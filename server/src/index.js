@@ -6,8 +6,18 @@ import api from './routes.js'
 
 dotenv.config()
 const app = express()
-app.use(cors({ origin: true }))
+const allowedOrigins = [
+    'https://client-mauve-kappa-45.vercel.app'
+]
+app.use(cors({
+    origin(origin, callback) {
+        if (!origin || allowedOrigins.includes(origin)) callback(null, true)
+        else callback(null, false)
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+}))
 app.use(express.json({ limit: '2mb' }))
+app.get('/api/health', (_, res) => res.json({ ok: true, mongoReady: mongoose.connection.readyState === 1 }))
 app.use('/api', api)
 
 const mongoUri = process.env.MONGODB_URI
