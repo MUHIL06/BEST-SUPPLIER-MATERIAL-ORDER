@@ -25,6 +25,6 @@ export { app }
 if (process.env.VERCEL !== '1') {
     const port = process.env.PORT || 5000
     connectDatabase()
-        .then(() => app.listen(port, () => console.log(`API running at http://localhost:${port}`)))
+        .then(() => app.listen(port, () => console.log(`API running at https://server-eosin-one-26.vercel.app (local port ${port})`)))
         .catch(error => { console.error('MongoDB connection failed:', error.message); process.exit(1) })
 }
