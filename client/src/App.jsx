@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import './App.css'
 
-const API = 'https://server-eosin-one-26.vercel.app/api'
+const API = 'https://best-supplier-material-order.vercel.app/api'
 const LS = { items: 'jacquard.items.v2', bills: 'jacquard.bills.v2' }
 
 const seedItems = [
