@@ -28,4 +28,4 @@ Inventory and supplier material-list application built with React, Express, Mong
 - Frontend: `https://srt-material-supplychain.vercel.app`
 - Backend: `https://best-supplier-material-order.vercel.app`
 
-The frontend uses `VITE_API_URL` from `client/.env.production`. The backend CORS allowlist accepts the frontend domain for browser API requests.
+The backend root responds with API status, and `/api/health` reports database connectivity. The frontend uses `VITE_API_URL` from `client/.env.production`; the backend CORS allowlist accepts the frontend domain for browser API requests.

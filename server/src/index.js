@@ -18,6 +18,11 @@ app.use(cors({
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
 }))
 app.use(express.json({ limit: '2mb' }))
+app.get('/', (_, res) => res.json({
+    ok: true,
+    service: 'Supplier Material Order API',
+    health: '/api/health'
+}))
 app.get('/api/health', (_, res) => res.json({
     ok: true,
     mongoConfigured: Boolean(process.env.MONGODB_URI || mongoUri),
