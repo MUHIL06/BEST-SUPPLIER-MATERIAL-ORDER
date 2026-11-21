@@ -7,6 +7,7 @@ import api from './routes.js'
 dotenv.config()
 const app = express()
 const allowedOrigins = [
+    'https://srt-material-supplychain.vercel.app',
     'https://client-mauve-kappa-45.vercel.app'
 ]
 app.use(cors({

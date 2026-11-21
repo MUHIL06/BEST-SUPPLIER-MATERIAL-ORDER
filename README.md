@@ -23,6 +23,9 @@ Inventory and supplier material-list application built with React, Express, Mong
    npm run dev --prefix client
    ```
 
-## GitHub Pages deployment
+## Vercel deployment
 
-The React client can be deployed as a static Vite application. Configure the API URL for your hosted Express server before production deployment.
+- Frontend: `https://srt-material-supplychain.vercel.app`
+- Backend: `https://best-supplier-material-order.vercel.app`
+
+The frontend uses `VITE_API_URL` from `client/.env.production`. The backend CORS allowlist accepts the frontend domain for browser API requests.

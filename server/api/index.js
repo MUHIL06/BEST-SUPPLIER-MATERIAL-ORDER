@@ -1,7 +1,13 @@
-const allowedOrigin = 'https://client-mauve-kappa-45.vercel.app'
+const allowedOrigins = [
+    'https://srt-material-supplychain.vercel.app',
+    'https://client-mauve-kappa-45.vercel.app'
+]
 
 export default async function handler(req, res) {
-    res.setHeader('Access-Control-Allow-Origin', allowedOrigin)
+    const origin = req.headers.origin
+    if (origin && allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin)
+    }
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 
