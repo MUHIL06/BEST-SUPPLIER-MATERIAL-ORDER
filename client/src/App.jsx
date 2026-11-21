@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import html2canvas from 'html2canvas'
 import {
-  Archive, ArrowLeft, Boxes, Check, ChevronDown, Copy, Edit3, History,
+  Archive, ArrowLeft, Boxes, Check, ChevronDown, Copy, CopyPlus, Edit3, History,
   Home, LayoutGrid, Menu, PackagePlus, Plus, ReceiptText, Redo2, RotateCcw,
   Search, Send, Trash2, Undo2, Users, Warehouse, X, Eye
 } from 'lucide-react'
@@ -29,6 +29,34 @@ const formatDate = value => {
 }
 const today = () => new Date().toISOString().slice(0, 10)
 const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char])
+
+async function shareBillImage(canvas, filename, notify) {
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'))
+  if (!blob) throw new Error('Bill image creation failed')
+
+  const file = typeof File === 'undefined' ? null : new File([blob], filename, { type: 'image/png' })
+  if (file && navigator.share && navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file] })
+      notify('Bill image shared without text.')
+      return
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        notify('Image sharing canceled.')
+        return
+      }
+      console.error('Bill image sharing failed:', error)
+    }
+  }
+
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.download = filename
+  link.href = url
+  link.click()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  notify('Bill image downloaded. Attach it in WhatsApp to send as an image.')
+}
 
 async function api(path, options) {
   try {
@@ -134,11 +162,11 @@ function App() {
         {page === 'home' && <HomePage items={activeItems} drafts={draftBills} passed={passedBills} navigate={navigate} />}
         {page === 'add' && <ProductForm onSave={saveItem} />}
         {page === 'view' && <ItemsView items={activeItems.filter(i => `${i.name} ${i.category} ${i.size}`.toLowerCase().includes(query.toLowerCase()))} onEdit={setProductModal} onDelete={deleteItem} onAdd={() => navigate('add')} />}
-        {page === 'bill' && <BillEditor key="new-bill" items={activeItems} onSave={bill => { setBills(v => [bill, ...v]); api('/bills', { method: 'POST', body: JSON.stringify(bill) }); notify('Bill saved as draft') }} onPass={bill => passBill(bill)} />}
+        {page === 'bill' && <BillEditor key="new-bill" items={activeItems} notify={notify} onSave={bill => { setBills(v => [bill, ...v]); api('/bills', { method: 'POST', body: JSON.stringify(bill) }); notify('Bill saved as draft') }} onPass={bill => passBill(bill)} />}
         {page === 'drafts' && <Drafts bills={draftBills} onPrepare={() => setPage('bill')} onEdit={id => setPage(`bill:${id}`)} onDuplicate={bill => { const copy = { ...bill, id: uid('bill'), number: `${bill.number || 'ML'}-C`, name: `${bill.name || bill.number} Copy`, status: 'draft', date: today(), passedAt: undefined, deletedAt: undefined }; setBills(v => [copy, ...v]); api('/bills', { method: 'POST', body: JSON.stringify(copy) }); notify('Draft duplicated') }} onPass={passDraft} onDelete={moveBillToBin} />}
         {page === 'history' && <HistoryView bills={passedBills} onView={setViewedBill} onDuplicate={bill => { const copy = { ...bill, id: uid('bill'), number: `${bill.number}-C`, name: `${bill.name || bill.number} Copy`, status: 'draft', date: today(), passedAt: undefined, deletedAt: undefined }; setBills(v => [copy, ...v]); api('/bills', { method: 'POST', body: JSON.stringify(copy) }); setPage('drafts'); notify('Bill duplicated to Drafts') }} onDelete={moveBillToBin} />}
         {page === 'bin' && <BinView items={binItems} bills={binBills} restoreItem={item => setItems(v => v.map(x => x.id === item.id ? { ...x, deletedAt: undefined } : x))} restoreBill={bill => setBills(v => v.map(x => x.id === bill.id ? { ...x, status: 'draft', deletedAt: undefined } : x))} />}
-        {page.startsWith('bill:') && <BillEditor key={page} items={activeItems} initial={bills.find(x => x.id === page.split(':')[1])} onSave={bill => { setBills(v => v.map(x => x.id === bill.id ? bill : x)); api(`/bills/${bill.id}`, { method: 'PUT', body: JSON.stringify(bill) }); notify('Draft updated') }} onPass={passBill} />}
+        {page.startsWith('bill:') && <BillEditor key={page} items={activeItems} initial={bills.find(x => x.id === page.split(':')[1])} notify={notify} onSave={bill => { setBills(v => v.map(x => x.id === bill.id ? bill : x)); api(`/bills/${bill.id}`, { method: 'PUT', body: JSON.stringify(bill) }); notify('Draft updated') }} onPass={passBill} />}
       </main>
 
       {productModal && <ProductModal item={productModal === true ? null : productModal} onClose={() => setProductModal(null)} onSave={saveItem} />}
@@ -163,27 +191,12 @@ function App() {
     host.innerHTML = `<h1 style="margin:0 0 8px">SAI RAM TRADERS</h1><p>${escapeHtml(passed.number)} · ${escapeHtml(formatDate(passed.date))}</p><hr><p><b>Bill:</b> ${escapeHtml(passed.name || passed.number)}</p><p><b>Supplier:</b> ${escapeHtml(passed.supplier || 'Not selected')}</p><hr>${(passed.lines || []).map(line => `<div style="display:flex;justify-content:space-between;border-bottom:1px solid #eee;padding:10px 0"><span>${escapeHtml(line.name)} (${escapeHtml(line.size)})</span><b>${escapeHtml(line.quantity)} ${escapeHtml(line.unit)}</b></div>`).join('')}<hr>`
     document.body.appendChild(host)
 
+    let canvas
     try {
-      const canvas = await html2canvas(host, { scale: 2, backgroundColor: '#ffffff', useCORS: true })
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'))
-
-      if (blob && navigator.clipboard?.write && window.ClipboardItem) {
-        await navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blob })])
-        notify('Bill image copied to clipboard')
-      }
-
-      const link = document.createElement('a')
-      link.download = `${passed.name || passed.number}-${passed.number}.png`
-      link.href = canvas.toDataURL('image/png')
-      link.click()
-
-      const text = encodeURIComponent(`SAI RAM TRADERS\n${passed.name || passed.number}\nSupplier: ${passed.supplier || 'Not selected'}\nDate: ${formatDate(passed.date)}`)
-      window.open(`https://wa.me/?text=${text}`, '_blank', 'noopener,noreferrer')
+      canvas = await html2canvas(host, { scale: 2, backgroundColor: '#ffffff', useCORS: true })
     } catch (error) {
-      console.error('Draft bill image/WhatsApp error:', error)
-      notify('Opening WhatsApp without image')
-      const text = encodeURIComponent(`SAI RAM TRADERS\n${passed.name || passed.number}\nSupplier: ${passed.supplier || 'Not selected'}\nDate: ${formatDate(passed.date)}`)
-      window.open(`https://wa.me/?text=${text}`, '_blank', 'noopener,noreferrer')
+      console.error('Draft bill image creation failed:', error)
+      notify('Could not create the bill image. The bill was still passed.')
     } finally {
       host.remove()
     }
@@ -191,6 +204,14 @@ function App() {
     setBills(v => v.some(x => x.id === passed.id) ? v.map(x => x.id === passed.id ? passed : x) : [passed, ...v])
     api(passed.id ? `/bills/${passed.id}` : '/bills', { method: passed.id ? 'PUT' : 'POST', body: JSON.stringify(passed) })
     setPage('history')
+    if (canvas) {
+      try {
+        await shareBillImage(canvas, `${passed.name || passed.number}-${passed.number}.png`, notify)
+      } catch (error) {
+        console.error('Draft bill image sharing failed:', error)
+        notify('The bill was passed, but its image could not be shared.')
+      }
+    }
   }
 }
 
@@ -272,7 +293,7 @@ function Empty({ text }) { return <div className="empty"><Boxes size={28} /><p>{
 
 const blankBill = () => ({ id: uid('bill'), number: `ML-${String(Date.now()).slice(-5)}`, name: '', date: today(), category: 'Machine Parts', supplier: '', customer: '', status: 'draft', lines: [] })
 
-function BillEditor({ items, initial, onSave, onPass }) {
+function BillEditor({ items, initial, notify, onSave, onPass }) {
   const [bill, setBill] = useState(initial ? { lines: [], ...initial } : blankBill())
   const [history, setHistory] = useState([bill])
   const [historyIndex, setHistoryIndex] = useState(0)
@@ -301,15 +322,25 @@ function BillEditor({ items, initial, onSave, onPass }) {
     if (!bill.name.trim()) { window.alert('Enter a bill name before sending.'); return }
     if (!bill.date) { window.alert('Select a bill date.'); return }
     if (!bill.lines?.length) return
-    onPass({ ...bill, status: 'passed' })
     const receipt = receiptRef.current
+    let canvas
     if (receipt) {
       try {
-        const canvas = await html2canvas(receipt, { scale: 2, backgroundColor: '#ffffff' })
-        const link = document.createElement('a'); link.download = `${bill.number || 'bill'}.png`; link.href = canvas.toDataURL('image/png'); link.click()
-        const text = encodeURIComponent(`Material List ${bill.number}\nSupplier: ${bill.supplier || 'Supplier'}\nDate: ${formatDate(bill.date)}`)
-        window.open(`https://wa.me/?text=${text}`, '_blank', 'noopener,noreferrer')
-      } catch { window.open(`https://wa.me/?text=${encodeURIComponent(`Material List ${bill.number}`)}`, '_blank') }
+        canvas = await html2canvas(receipt, { scale: 2, backgroundColor: '#ffffff' })
+      } catch (error) {
+        console.error('Bill image creation failed:', error)
+      }
+    }
+    onPass({ ...bill, status: 'passed' })
+    if (!canvas) {
+      notify('The bill was passed, but its image could not be created.')
+      return
+    }
+    try {
+      await shareBillImage(canvas, `${bill.number || 'bill'}.png`, notify)
+    } catch (error) {
+      console.error('Bill image sharing failed:', error)
+      notify('The bill was passed, but its image could not be shared.')
     }
   }
 
@@ -356,7 +387,7 @@ function BillEditor({ items, initial, onSave, onPass }) {
       <div className="bill-lines-head"><div><p>REQUIRED MATERIALS</p><h2>Material items</h2></div><button className="secondary" onClick={() => setPicker(true)}><Plus size={16} /> Add material</button></div>
       <div className="bill-lines">{bill.lines?.map(line => <div className="bill-line" key={line.itemId}><div className="table-product"><span>{line.name[0]}</span><div><b>{line.name}</b><small>{line.size}</small></div></div><div className="qty"><button onClick={() => lineChange(line.itemId, line.quantity - 1)}>−</button><input type="number" min="0" value={line.quantity} onChange={e => lineChange(line.itemId, e.target.value)} /><button onClick={() => lineChange(line.itemId, line.quantity + 1)}>+</button></div><div className="line-unit">{line.unit}</div><button className="line-remove" onClick={() => removeLine(line.itemId)}><X size={16} /></button></div>)}</div>
       {!bill.lines?.length && <div className="bill-empty"><ReceiptText size={28} /><b>No materials added</b><small>Add materials to begin this supplier list</small></div>}
-      <div className="bill-actions"><button className="danger-soft" onClick={() => { onSave({ ...bill, status: 'deleted' }); }}><Trash2 size={16} /> Delete list</button><div><button className="secondary" onClick={saveDraft}>Save draft</button><button className="secondary" onClick={saveAndCopyImage}><Copy size={16} /> Save &amp; copy image</button><button className="primary" onClick={pass} disabled={!bill.lines?.length}><Send size={16} /> Send to supplier</button></div></div>
+      <div className="bill-actions"><button className="danger-soft" onClick={() => { onSave({ ...bill, status: 'deleted' }); }}><Trash2 size={16} /> Delete list</button><div><button className="secondary" onClick={saveDraft}>Save draft</button><button className="secondary" onClick={saveAndCopyImage}><Copy size={16} /> Save &amp; copy image</button><button className="primary" onClick={pass} disabled={!bill.lines?.length}><Send size={16} /> Share bill image</button></div></div>
     </section>
       <aside className="panel bill-summary"><div className="summary-head"><span>SAI RAM TRADERS</span><small>{bill.number}</small></div><div className="summary-info"><div><span>Supplier</span><b>{bill.supplier || 'Not selected'}</b></div><div><span>Date</span><b>{formatDate(bill.date)}</b></div><div><span>Category</span><b>{bill.category}</b></div></div></aside>
     </div>
@@ -366,10 +397,10 @@ function BillEditor({ items, initial, onSave, onPass }) {
 }
 
 function Drafts({ bills, onPrepare, onEdit, onDuplicate, onPass, onDelete }) {
-  return <ListView title="Draft material lists" eyebrow="WORK IN PROGRESS" bills={bills} extraAction={<button className="primary" onClick={onPrepare}><Plus size={17} /> Prepare draft bill</button>} actions={(bill) => <><button onClick={() => onEdit(bill.id)} title="Edit"><Edit3 size={16} /></button><button onClick={() => onDuplicate(bill)} title="Duplicate"><Copy size={16} /></button><button onClick={() => onPass(bill)} title="Send"><Send size={16} /></button><button onClick={() => onDelete(bill)} title="Delete"><Trash2 size={16} /></button></>} />
+  return <ListView title="Draft material lists" eyebrow="WORK IN PROGRESS" bills={bills} extraAction={<button className="primary" onClick={onPrepare}><Plus size={17} /> Prepare draft bill</button>} actions={(bill) => <><button onClick={() => onEdit(bill.id)} title="Edit"><Edit3 size={16} /></button><button onClick={() => onDuplicate(bill)} title="Duplicate"><CopyPlus size={16} /></button><button onClick={() => onPass(bill)} title="Send"><Send size={16} /></button><button onClick={() => onDelete(bill)} title="Delete"><Trash2 size={16} /></button></>} />
 }
 
-function HistoryView({ bills, onView, onDuplicate, onDelete }) { return <ListView title="Sent material lists" eyebrow="SUPPLIER HISTORY" bills={bills} actions={bill => <><button onClick={() => onView(bill)} title="View"><Eye size={16} /></button><button onClick={() => onDuplicate(bill)} title="Duplicate"><Copy size={16} /></button><button onClick={() => onDelete(bill)} title="Delete"><Trash2 size={16} /></button></>} /> }
+function HistoryView({ bills, onView, onDuplicate, onDelete }) { return <ListView title="Sent material lists" eyebrow="SUPPLIER HISTORY" bills={bills} actions={bill => <><button onClick={() => onView(bill)} title="View"><Eye size={16} /></button><button onClick={() => onDuplicate(bill)} title="Duplicate"><CopyPlus size={16} /></button><button onClick={() => onDelete(bill)} title="Delete"><Trash2 size={16} /></button></>} /> }
 
 function ListView({ title, eyebrow, bills, actions, extraAction }) {
   return <div className="page-view"><div className="view-heading"><div><p>{eyebrow}</p><h1>{title}</h1></div>{extraAction}</div><section className="panel table-panel"><div className="table-wrap"><table><thead><tr><th>Material list</th><th>Name</th><th>Supplier</th><th>Date</th><th>Category</th><th>Materials</th><th>Status</th><th></th></tr></thead><tbody>{bills.map(bill => <tr key={bill.id}><td><b>{bill.number}</b></td><td>{bill.name || 'Unnamed bill'}</td><td>{bill.supplier || 'Not selected'}</td><td>{formatDate(bill.date)}</td><td>{bill.category}</td><td>{bill.lines?.length || 0}</td><td><span className={`status ${bill.status}`}>{bill.status}</span></td><td><div className="row-actions">{actions(bill)}</div></td></tr>)}</tbody></table>{!bills.length && <Empty text={`No ${title.toLowerCase()} yet`} />}</div></section></div>
