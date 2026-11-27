@@ -993,7 +993,14 @@ tr:last-child td {
   padding: 7px 8px
 }
 
-.bill-line .table-product small {
+.bill-item-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0
+}
+
+.bill-item-details small {
   display: block;
   color: #9da2ad;
   font-size: 8px
@@ -1452,11 +1459,11 @@ tr:last-child td {
   }
 
   .bill-line {
-    grid-template-columns: 1fr 112px 28px
+    grid-template-columns: minmax(0, 1fr) 112px 32px 28px
   }
 
-  .bill-line .line-unit {
-    display: none
+  .bill-item-details b {
+    overflow-wrap: anywhere
   }
 
   .bill-actions {
@@ -1533,6 +1540,11 @@ tr:last-child td {
   justify-content: space-between;
   border-bottom: 1px solid #f0f0ed;
   font-size: 12px;
+}
+
+.bill-view-lines div>span:first-child {
+  flex: 1;
+  padding-right: 12px
 }
 
 .category-tabs {

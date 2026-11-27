@@ -82,7 +82,19 @@ function App() {
   useEffect(() => {
     Promise.all([api('/items'), api('/bills')]).then(([remoteItems, remoteBills]) => {
       if (remoteItems?.length) setItems(remoteItems.map(x => ({ ...x, id: x._id || x.id })))
-      if (remoteBills) setBills(remoteBills.map(x => ({ ...x, id: x._id || x.id })))
+      if (remoteBills) {
+        const normalizedBills = remoteBills.map(x => ({ ...x, id: x._id || x.id }))
+        setBills(current => {
+          const mergedBills = normalizedBills.map(remote => {
+            const local = current.find(x => x.id === remote.id || x.number === remote.number)
+            return local ? { ...remote, ...local, id: remote.id } : remote
+          })
+          const localOnlyBills = current.filter(local =>
+            !normalizedBills.some(remote => remote.id === local.id || remote.number === local.number)
+          )
+          return [...mergedBills, ...localOnlyBills]
+        })
+      }
     })
   }, [])
 
@@ -113,6 +125,20 @@ function App() {
     setBills(v => v.map(x => x.id === bill.id ? { ...x, status: 'deleted', deletedAt: new Date().toISOString() } : x))
     api(`/bills/${bill.id}`, { method: 'DELETE' })
     notify('Bill moved to Bin')
+  }
+
+  const persistBill = async (bill, isExisting) => {
+    const shouldUpdate = isExisting && /^[a-f\d]{24}$/i.test(bill.id)
+    const savedBill = await api(shouldUpdate ? `/bills/${bill.id}` : '/bills', {
+      method: shouldUpdate ? 'PUT' : 'POST',
+      body: JSON.stringify(bill)
+    })
+    const savedId = savedBill?._id || savedBill?.id
+    if (savedId && savedId !== bill.id) {
+      setBills(v => v.map(x => x.id === bill.id ? { ...x, id: savedId } : x))
+      return { ...bill, id: savedId }
+    }
+    return bill
   }
 
   const activeItems = items.filter(x => !x.deletedAt)
@@ -162,11 +188,11 @@ function App() {
         {page === 'home' && <HomePage items={activeItems} drafts={draftBills} passed={passedBills} navigate={navigate} />}
         {page === 'add' && <ProductForm onSave={saveItem} />}
         {page === 'view' && <ItemsView items={activeItems.filter(i => `${i.name} ${i.category} ${i.size}`.toLowerCase().includes(query.toLowerCase()))} onEdit={setProductModal} onDelete={deleteItem} onAdd={() => navigate('add')} />}
-        {page === 'bill' && <BillEditor key="new-bill" items={activeItems} notify={notify} onSave={bill => { setBills(v => [bill, ...v]); api('/bills', { method: 'POST', body: JSON.stringify(bill) }); notify('Bill saved as draft') }} onPass={bill => passBill(bill)} />}
+        {page === 'bill' && <BillEditor key="new-bill" items={activeItems} notify={notify} onSave={bill => { setBills(v => [bill, ...v]); const saved = persistBill(bill, false); notify('Bill saved as draft'); return saved }} onPass={bill => passBill(bill)} />}
         {page === 'drafts' && <Drafts bills={draftBills} onPrepare={() => setPage('bill')} onEdit={id => setPage(`bill:${id}`)} onDuplicate={bill => { const copy = { ...bill, id: uid('bill'), number: `${bill.number || 'ML'}-C`, name: `${bill.name || bill.number} Copy`, status: 'draft', date: today(), passedAt: undefined, deletedAt: undefined }; setBills(v => [copy, ...v]); api('/bills', { method: 'POST', body: JSON.stringify(copy) }); notify('Draft duplicated') }} onPass={passDraft} onDelete={moveBillToBin} />}
         {page === 'history' && <HistoryView bills={passedBills} onView={setViewedBill} onDuplicate={bill => { const copy = { ...bill, id: uid('bill'), number: `${bill.number}-C`, name: `${bill.name || bill.number} Copy`, status: 'draft', date: today(), passedAt: undefined, deletedAt: undefined }; setBills(v => [copy, ...v]); api('/bills', { method: 'POST', body: JSON.stringify(copy) }); setPage('drafts'); notify('Bill duplicated to Drafts') }} onDelete={moveBillToBin} />}
         {page === 'bin' && <BinView items={binItems} bills={binBills} restoreItem={item => setItems(v => v.map(x => x.id === item.id ? { ...x, deletedAt: undefined } : x))} restoreBill={bill => setBills(v => v.map(x => x.id === bill.id ? { ...x, status: 'draft', deletedAt: undefined } : x))} />}
-        {page.startsWith('bill:') && <BillEditor key={page} items={activeItems} initial={bills.find(x => x.id === page.split(':')[1])} notify={notify} onSave={bill => { setBills(v => v.map(x => x.id === bill.id ? bill : x)); api(`/bills/${bill.id}`, { method: 'PUT', body: JSON.stringify(bill) }); notify('Draft updated') }} onPass={passBill} />}
+        {page.startsWith('bill:') && <BillEditor key={page} items={activeItems} initial={bills.find(x => x.id === page.split(':')[1])} notify={notify} onSave={bill => { setBills(v => v.map(x => x.id === bill.id ? bill : x)); const saved = persistBill(bill, true); notify('Draft updated'); return saved }} onPass={passBill} />}
       </main>
 
       {productModal && <ProductModal item={productModal === true ? null : productModal} onClose={() => setProductModal(null)} onSave={saveItem} />}
@@ -177,8 +203,9 @@ function App() {
 
   function passBill(bill) {
     const passed = { ...bill, id: bill.id || uid('bill'), status: 'passed', passedAt: new Date().toISOString() }
-    setBills(v => v.some(x => x.id === passed.id) ? v.map(x => x.id === passed.id ? passed : x) : [passed, ...v])
-    api(passed.id ? `/bills/${passed.id}` : '/bills', { method: passed.id ? 'PUT' : 'POST', body: JSON.stringify(passed) })
+    const isExisting = bills.some(x => x.id === passed.id)
+    setBills(v => isExisting ? v.map(x => x.id === passed.id ? passed : x) : [passed, ...v])
+    persistBill(passed, isExisting)
     notify('Bill passed successfully')
     setPage('history')
   }
@@ -188,7 +215,7 @@ function App() {
 
     const host = document.createElement('div')
     host.style.cssText = 'position:fixed;left:-10000px;top:0;width:760px;background:#fff;color:#17223b;padding:36px;font-family:Arial,sans-serif;z-index:-1'
-    host.innerHTML = `<h1 style="margin:0 0 8px">SAI RAM TRADERS</h1><p>${escapeHtml(passed.number)} · ${escapeHtml(formatDate(passed.date))}</p><hr><p><b>Bill:</b> ${escapeHtml(passed.name || passed.number)}</p><p><b>Supplier:</b> ${escapeHtml(passed.supplier || 'Not selected')}</p><hr>${(passed.lines || []).map(line => `<div style="display:flex;justify-content:space-between;border-bottom:1px solid #eee;padding:10px 0"><span>${escapeHtml(line.name)} (${escapeHtml(line.size)})</span><b>${escapeHtml(line.quantity)} ${escapeHtml(line.unit)}</b></div>`).join('')}<hr>`
+    host.innerHTML = `<h1 style="margin:0 0 8px">SAI RAM TRADERS</h1><p>${escapeHtml(passed.number)} · ${escapeHtml(formatDate(passed.date))}</p><hr><p><b>Bill:</b> ${escapeHtml(passed.name || passed.number)}</p><p><b>Supplier:</b> ${escapeHtml(passed.supplier || 'Not selected')}</p><hr>${(passed.lines || []).map(line => `<div style="display:flex;justify-content:space-between;border-bottom:1px solid #eee;padding:10px 0"><span>${[line.size, line.name, line.length && `Length: ${line.length}`].filter(Boolean).map(escapeHtml).join(' · ')}</span><b>${escapeHtml(line.quantity)} ${escapeHtml(line.unit)}</b></div>`).join('')}<hr>`
     document.body.appendChild(host)
 
     let canvas
@@ -201,8 +228,9 @@ function App() {
       host.remove()
     }
 
-    setBills(v => v.some(x => x.id === passed.id) ? v.map(x => x.id === passed.id ? passed : x) : [passed, ...v])
-    api(passed.id ? `/bills/${passed.id}` : '/bills', { method: passed.id ? 'PUT' : 'POST', body: JSON.stringify(passed) })
+    const isExisting = bills.some(x => x.id === passed.id)
+    setBills(v => isExisting ? v.map(x => x.id === passed.id ? passed : x) : [passed, ...v])
+    persistBill(passed, isExisting)
     setPage('history')
     if (canvas) {
       try {
@@ -265,7 +293,7 @@ function ProductForm({ onSave }) { return <ProductEditor onSave={onSave} /> }
 function ProductModal({ item, onClose, onSave }) { return <div className="modal-wrap"><div className="modal"><div className="modal-head"><div><p>{item ? 'UPDATE MATERIAL' : 'NEW MATERIAL'}</p><h2>{item ? 'Edit material' : 'Add material'}</h2></div><button onClick={onClose}><X size={20} /></button></div><ProductEditor item={item} onSave={onSave} inline /></div></div> }
 
 function ProductEditor({ item, onSave, inline = false }) {
-  const [form, setForm] = useState(item || { name: '', size: '', category: '', unit: 'pcs' })
+  const [form, setForm] = useState(item || { name: '', size: '', length: '', category: '', unit: 'pcs' })
   const set = (key, value) => setForm(v => ({ ...v, [key]: value }))
   const submit = e => { e.preventDefault(); if (form.name.trim()) onSave({ ...form, name: form.name.trim(), unit: form.unit === 'other' ? (form.customUnit || 'other').trim() : form.unit }) }
   return <form className={`product-editor ${inline ? 'inline' : ''}`} onSubmit={submit}>
@@ -274,11 +302,12 @@ function ProductEditor({ item, onSave, inline = false }) {
       <div className="form-grid">
         <label className="field span-2"><span>Material name</span><input required value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Allen screw" /></label>
         <label className="field"><span>Size / specification</span><input required value={form.size} onChange={e => set('size', e.target.value)} placeholder="e.g. 5 × 10 mm" /></label>
+        <label className="field"><span>Length (optional)</span><input value={form.length || ''} onChange={e => set('length', e.target.value)} placeholder="e.g. 25 mm" /></label>
         <label className="field"><span>Category</span><input required value={form.category} onChange={e => set('category', e.target.value)} placeholder="e.g. Fasteners" /></label>
-        <label className="field"><span>Unit</span><select value={form.unit} onChange={e => set('unit', e.target.value)}><option value="pcs">Pieces (pcs)</option><option value="kgs">Kilograms (kgs)</option><option value="boxes">Boxes</option><option value="meters">Meters</option><option value="boards">Boards</option><option value="other">Other</option></select></label>
+        <label className="field"><span>Unit</span><select value={form.unit} onChange={e => set('unit', e.target.value)}><option value="pcs">Pieces (pcs)</option><option value="kgs">Kilograms (kgs)</option><option value="boxes">Boxes</option><option value="Nos">Numbers (Nos)</option><option value="meters">Meters</option><option value="boards">Boards</option><option value="other">Other</option></select></label>
         {form.unit === 'other' && <label className="field"><span>Custom unit</span><input required value={form.customUnit || ''} onChange={e => set('customUnit', e.target.value)} placeholder="e.g. rolls, sets, packs" /></label>}
       </div>
-      <div className="form-actions"><button type="button" className="secondary" onClick={() => setForm({ name: '', size: '', category: '', unit: 'pcs' })}><RotateCcw size={16} /> Reset</button><button className="primary" type="submit"><Check size={17} />{item ? 'Save changes' : 'Add material'}</button></div>
+      <div className="form-actions"><button type="button" className="secondary" onClick={() => setForm({ name: '', size: '', length: '', category: '', unit: 'pcs' })}><RotateCcw size={16} /> Reset</button><button className="primary" type="submit"><Check size={17} />{item ? 'Save changes' : 'Add material'}</button></div>
     </section>
   </form>
 }
@@ -305,17 +334,21 @@ function BillEditor({ items, initial, notify, onSave, onPass }) {
   useEffect(() => { }, [])
   const commit = next => { const copy = [...history.slice(0, historyIndex + 1), next]; setHistory(copy); setHistoryIndex(copy.length - 1); setBill(next) }
   const setField = (key, value) => commit({ ...bill, [key]: value })
-  const addLine = item => { if (!bill.lines?.some(x => x.itemId === item.id)) commit({ ...bill, lines: [...(bill.lines || []), { itemId: item.id, name: item.name, size: item.size, unit: item.unit, quantity: 1 }] }); setPicker(false) }
+  const addLine = item => { if (!bill.lines?.some(x => x.itemId === item.id)) commit({ ...bill, lines: [...(bill.lines || []), { itemId: item.id, name: item.name, size: item.size, length: item.length, unit: item.unit, quantity: 1 }] }); setPicker(false) }
   const lineChange = (itemId, quantity) => commit({ ...bill, lines: bill.lines.map(l => l.itemId === itemId ? { ...l, quantity: Math.max(0, Number(quantity)) } : l) })
   const removeLine = itemId => commit({ ...bill, lines: bill.lines.filter(l => l.itemId !== itemId) })
   const undo = () => { if (historyIndex > 0) { const i = historyIndex - 1; setHistoryIndex(i); setBill(history[i]) } }
   const redo = () => { if (historyIndex < history.length - 1) { const i = historyIndex + 1; setHistoryIndex(i); setBill(history[i]) } }
   const total = bill.lines?.reduce((s, l) => s + Number(l.quantity || 0), 0) || 0
 
-  const saveDraft = () => {
+  const saveDraft = async () => {
     if (!bill.name.trim()) { window.alert('Enter a bill name before saving the draft.'); return }
     if (!bill.date) { window.alert('Select a bill date.'); return }
-    onSave({ ...bill, name: bill.name.trim(), status: 'draft', lines: bill.lines || [] })
+    const savedBill = await onSave({ ...bill, name: bill.name.trim(), status: 'draft', lines: bill.lines || [] })
+    if (savedBill?.id && savedBill.id !== bill.id) {
+      setHistory(current => current.map(entry => entry.id === bill.id ? { ...entry, id: savedBill.id } : entry))
+      setBill(savedBill)
+    }
   }
 
   const pass = async () => {
@@ -376,7 +409,7 @@ function BillEditor({ items, initial, notify, onSave, onPass }) {
   const addSelectedMaterials = () => {
     const linesToAdd = selectedMaterials
       .filter(item => !bill.lines?.some(line => line.itemId === item.id))
-      .map(item => ({ itemId: item.id, name: item.name, size: item.size, unit: item.unit, quantity: 1 }))
+      .map(item => ({ itemId: item.id, name: item.name, size: item.size, length: item.length, unit: item.unit, quantity: 1 }))
     if (linesToAdd.length) commit({ ...bill, lines: [...(bill.lines || []), ...linesToAdd] })
     setSelectedMaterials([])
     setPicker(false)
@@ -385,13 +418,13 @@ function BillEditor({ items, initial, notify, onSave, onPass }) {
   return <div className="bill-page"><div className="view-heading"><div><p>SUPPLIER REQUIREMENTS</p><h1>{initial ? 'Edit material list' : 'Create material list'}</h1></div><div className="bill-tools"><button onClick={undo} disabled={historyIndex === 0} title="Undo"><Undo2 size={17} /></button><button onClick={redo} disabled={historyIndex === history.length - 1} title="Redo"><Redo2 size={17} /></button></div></div>
     <div className="bill-layout"><section className="panel bill-form"><div className="bill-fields"><label className="field span-2"><span>Bill name *</span><input required value={bill.name || ''} onChange={e => setField('name', e.target.value)} placeholder="e.g. Monday spring requirement" /></label><label className="field"><span>List date *</span><input type="date" required value={bill.date} onChange={e => setField('date', e.target.value)} /></label><label className="field"><span>Material category</span><select value={bill.category} onChange={e => setField('category', e.target.value)}><option>Machine Parts</option><option>Fasteners</option><option>Electronic Parts</option><option>Harness Parts</option></select></label><label className="field span-2"><span>Supplier name</span><input value={bill.supplier || ''} onChange={e => setField('supplier', e.target.value)} placeholder="Supplier or company name" /></label></div>
       <div className="bill-lines-head"><div><p>REQUIRED MATERIALS</p><h2>Material items</h2></div><button className="secondary" onClick={() => setPicker(true)}><Plus size={16} /> Add material</button></div>
-      <div className="bill-lines">{bill.lines?.map(line => <div className="bill-line" key={line.itemId}><div className="table-product"><span>{line.name[0]}</span><div><b>{line.name}</b><small>{line.size}</small></div></div><div className="qty"><button onClick={() => lineChange(line.itemId, line.quantity - 1)}>−</button><input type="number" min="0" value={line.quantity} onChange={e => lineChange(line.itemId, e.target.value)} /><button onClick={() => lineChange(line.itemId, line.quantity + 1)}>+</button></div><div className="line-unit">{line.unit}</div><button className="line-remove" onClick={() => removeLine(line.itemId)}><X size={16} /></button></div>)}</div>
+      <div className="bill-lines">{bill.lines?.map(line => <div className="bill-line" key={line.itemId}><div className="bill-item-details">{line.size && <small>{line.size}</small>}<b>{line.name}</b>{line.length && <small>Length: {line.length}</small>}</div><div className="qty"><button onClick={() => lineChange(line.itemId, line.quantity - 1)}>−</button><input type="number" min="0" value={line.quantity} onChange={e => lineChange(line.itemId, e.target.value)} /><button onClick={() => lineChange(line.itemId, line.quantity + 1)}>+</button></div><div className="line-unit">{line.unit}</div><button className="line-remove" onClick={() => removeLine(line.itemId)}><X size={16} /></button></div>)}</div>
       {!bill.lines?.length && <div className="bill-empty"><ReceiptText size={28} /><b>No materials added</b><small>Add materials to begin this supplier list</small></div>}
       <div className="bill-actions"><button className="danger-soft" onClick={() => { onSave({ ...bill, status: 'deleted' }); }}><Trash2 size={16} /> Delete list</button><div><button className="secondary" onClick={saveDraft}>Save draft</button><button className="secondary" onClick={saveAndCopyImage}><Copy size={16} /> Save &amp; copy image</button><button className="primary" onClick={pass} disabled={!bill.lines?.length}><Send size={16} /> Share bill image</button></div></div>
     </section>
       <aside className="panel bill-summary"><div className="summary-head"><span>SAI RAM TRADERS</span><small>{bill.number}</small></div><div className="summary-info"><div><span>Supplier</span><b>{bill.supplier || 'Not selected'}</b></div><div><span>Date</span><b>{formatDate(bill.date)}</b></div><div><span>Category</span><b>{bill.category}</b></div></div></aside>
     </div>
-    <div ref={receiptRef} className="receipt-print"><h2>SAI RAM TRADERS</h2><p>{bill.number} · {formatDate(bill.date)}</p><hr /><p><b>Supplier:</b> {bill.supplier || 'Not selected'}</p>{bill.lines?.map(l => <div key={l.itemId}><span>{l.name} ({l.size})</span><b>{l.quantity} {l.unit}</b></div>)}<hr /></div>
+    <div ref={receiptRef} className="receipt-print"><h2>SAI RAM TRADERS</h2><p>{bill.number} · {formatDate(bill.date)}</p><hr /><p><b>Supplier:</b> {bill.supplier || 'Not selected'}</p>{bill.lines?.map(l => <div key={l.itemId}><span>{[l.size, l.name, l.length && `Length: ${l.length}`].filter(Boolean).join(' · ')}</span><b>{l.quantity} {l.unit}</b></div>)}<hr /></div>
     {picker && <div className="modal-wrap"><div className="modal picker"><div className="modal-head"><div><p>MATERIAL CATALOGUE</p><h2>Select materials by category</h2></div><button onClick={() => setPicker(false)}><X size={20} /></button></div><div className="category-tabs">{categories.map(category => <button key={category} className={pickerCategory === category ? 'active' : ''} onClick={() => setPickerCategory(category)}>{category}</button>)}</div><div className="picker-list">{visiblePickerItems.map(item => { const selected = selectedMaterials.some(x => x.id === item.id); return <button key={item.id} className={selected ? 'selected' : ''} onClick={() => toggleMaterial(item)}><span>{item.name[0]}</span><div><b>{item.name}</b><small>{item.size} · {item.category}</small></div><span className="selection-check">{selected ? <Check size={15} /> : <Plus size={15} />}</span></button> })}</div><div className="picker-footer"><small>{selectedMaterials.length} material(s) selected</small><button className="primary" onClick={addSelectedMaterials} disabled={!selectedMaterials.length}>Add selected</button></div></div></div>}
   </div>
 }
@@ -411,7 +444,7 @@ function BinView({ items, bills, restoreItem, restoreBill }) {
 }
 
 function BillViewModal({ bill, onClose }) {
-  return <div className="modal-wrap"><div className="modal bill-view-modal"><div className="modal-head"><div><p>SENT MATERIAL LIST</p><h2>{bill.name || bill.number}</h2></div><button onClick={onClose}><X size={20} /></button></div><div className="bill-view-info"><div><span>Supplier</span><b>{bill.supplier || 'Not selected'}</b></div><div><span>Date</span><b>{formatDate(bill.date)}</b></div><div><span>Category</span><b>{bill.category}</b></div></div><div className="bill-view-lines">{bill.lines?.map(line => <div key={line.itemId || line.name}><span>{line.name}</span><b>{line.quantity} {line.unit}</b></div>)}</div></div></div>
+  return <div className="modal-wrap"><div className="modal bill-view-modal"><div className="modal-head"><div><p>SENT MATERIAL LIST</p><h2>{bill.name || bill.number}</h2></div><button onClick={onClose}><X size={20} /></button></div><div className="bill-view-info"><div><span>Supplier</span><b>{bill.supplier || 'Not selected'}</b></div><div><span>Date</span><b>{formatDate(bill.date)}</b></div><div><span>Category</span><b>{bill.category}</b></div></div><div className="bill-view-lines">{bill.lines?.map(line => <div key={line.itemId || line.name}><span>{[line.size, line.name, line.length && `Length: ${line.length}`].filter(Boolean).join(' · ')}</span><b>{line.quantity} {line.unit}</b></div>)}</div></div></div>
 }
 
 export default App

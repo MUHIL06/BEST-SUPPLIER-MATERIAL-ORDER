@@ -2,7 +2,7 @@ import express from 'express'
 import mongoose from 'mongoose'
 
 const router = express.Router()
-const itemSchema = new mongoose.Schema({ name: String, size: String, category: String, unit: { type: String, default: 'pcs' }, customUnit: String, deletedAt: Date }, { timestamps: true })
+const itemSchema = new mongoose.Schema({ name: String, size: String, length: String, category: String, unit: { type: String, default: 'pcs' }, customUnit: String, deletedAt: Date }, { timestamps: true })
 const billSchema = new mongoose.Schema({
     number: String,
     name: String,
@@ -11,8 +11,8 @@ const billSchema = new mongoose.Schema({
     category: String,
     date: Date,
     status: { type: String, enum: ['draft', 'passed', 'deleted'], default: 'draft' },
-    lines: [{ itemId: String, name: String, size: String, quantity: Number, unit: String }],
-    items: [{ itemId: String, name: String, size: String, quantity: Number, unit: String }],
+    lines: [{ itemId: String, name: String, size: String, length: String, quantity: Number, unit: String }],
+    items: [{ itemId: String, name: String, size: String, length: String, quantity: Number, unit: String }],
     deletedAt: Date
 }, { timestamps: true })
 const Item = mongoose.models.Item || mongoose.model('Item', itemSchema)
